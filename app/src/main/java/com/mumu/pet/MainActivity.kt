@@ -1,15 +1,18 @@
 package com.mumu.pet
 
 import android.content.Intent
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
-import android.widget.Button
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -20,103 +23,181 @@ class MainActivity : AppCompatActivity() {
     private lateinit var passwordInput: EditText
     private lateinit var statusText: TextView
 
+    private val density get() = resources.displayMetrics.density
+    private fun px(v: Int) = (v * density).toInt()
+    private fun color(hex: Long) = hex.toInt()
+
+    private val bg = color(0xFFF5F2FB)
+    private val cardBg = color(0xFFFFFFFF)
+    private val primary = color(0xFF7B5BD6)
+    private val primaryDark = color(0xFF4E3690)
+    private val ink = color(0xFF1F1B2E)
+    private val ink2 = color(0xFF6E6885)
+    private val hintColor = color(0xFF9A93A8)
+    private val lineColor = color(0xFFE4DEF3)
+    private val white = color(0xFFFFFFFF)
+    private val softPink = color(0xFFFFF1EA)
+    private val softPinkLine = color(0xFFFFD8C0)
+    private val softPinkText = color(0xFFBC5F35)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val dp = resources.displayMetrics.density
-        fun px(v: Int) = (v * dp).toInt()
-
-        val layout = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(px(24), px(24), px(24), px(24))
+            setPadding(px(20), px(20), px(20), px(28))
+            setBackgroundColor(bg)
         }
 
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "MuMu"
-            textSize = 30f
+            textSize = 32f
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER_HORIZONTAL
-        }
+            setTextColor(primaryDark)
+            layoutParams = wrap(top = 16)
+        })
 
-        val emailLabel = TextView(this).apply {
-            text = "邮箱"
-            textSize = 14f
-            setPadding(0, px(6), 0, 0)
-        }
+        root.addView(TextView(this).apply {
+            text = "一只黏人的小狐狸，会一直陪着你"
+            textSize = 13f
+            gravity = Gravity.CENTER_HORIZONTAL
+            setTextColor(ink2)
+            layoutParams = wrap(top = 6)
+        })
 
-        emailInput = EditText(this).apply {
-            hint = "you@example.com"
-            inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            setSingleLine()
-            textSize = 15f
-        }
+        // ---------- 账号 ----------
+        val accountCard = card()
+        accountCard.addView(tag("账号"))
 
-        val pwdLabel = TextView(this).apply {
-            text = "密码（至少 6 位）"
-            textSize = 14f
-            setPadding(0, px(6), 0, 0)
-        }
+        emailInput = input("邮箱，例如 you@example.com", InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
+        passwordInput = input(
+            "密码，至少 6 位",
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        )
+        accountCard.addView(emailInput)
+        accountCard.addView(passwordInput)
 
-        passwordInput = EditText(this).apply {
-            hint = "至少 6 位"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setSingleLine()
-            textSize = 15f
-        }
-
-        val loginButton = Button(this).apply {
-            text = "登录"
-            setOnClickListener { submitAuth(register = false) }
-        }
-
-        val registerButton = Button(this).apply {
-            text = "注册新账号"
-            setOnClickListener { submitAuth(register = true) }
-        }
+        accountCard.addView(button("登录", primary, white) { submitAuth(register = false) })
+        accountCard.addView(button("注册新账号", cardBg, primary, primary) { submitAuth(register = true) })
 
         statusText = TextView(this).apply {
             textSize = 13f
-            setPadding(0, px(8), 0, px(12))
-            setLineSpacing(0f, 1.3f)
+            setTextColor(ink2)
+            setLineSpacing(0f, 1.35f)
+            layoutParams = wrap(top = 12)
         }
+        accountCard.addView(statusText)
+        root.addView(accountCard)
 
-        val startButton = Button(this).apply {
-            text = "叫 MuMu 出来"
-            setOnClickListener { ensureOverlayPermissionThenStart() }
+        // ---------- 桌宠 ----------
+        val petCard = card()
+        petCard.addView(tag("桌宠"))
+        petCard.addView(TextView(this).apply {
+            text = "MuMu 需要「悬浮窗」权限才能站在屏幕上。叫出来之后，可以用手指把它拖到任意位置，它也会自己溜达。"
+            textSize = 13f
+            setTextColor(ink2)
+            setLineSpacing(0f, 1.4f)
+            layoutParams = wrap(top = 8)
+        })
+
+        petCard.addView(button("叫 MuMu 出来", primary, white) { ensureOverlayPermissionThenStart() })
+        petCard.addView(button("让 MuMu 回家", cardBg, ink, lineColor) {
+            stopService(Intent(this@MainActivity, PetOverlayService::class.java))
+            toast("MuMu 回家了")
+        })
+        petCard.addView(button("退出登录", softPink, softPinkText, softPinkLine) {
+            PetStore.signOut(this@MainActivity)
+            refreshStatus()
+            toast("已退出，MuMu 只在本地活着")
+        })
+        root.addView(petCard)
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(
+                root,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
-
-        val stopButton = Button(this).apply {
-            text = "让 MuMu 回家"
-            setOnClickListener {
-                stopService(Intent(this@MainActivity, PetOverlayService::class.java))
-                toast("MuMu 回家了")
-            }
-        }
-
-        val signOutButton = Button(this).apply {
-            text = "退出登录"
-            setOnClickListener {
-                PetStore.signOut(this@MainActivity)
-                refreshStatus()
-                toast("已退出，MuMu 只在本地活着")
-            }
-        }
-
-        layout.addView(title)
-        layout.addView(emailLabel)
-        layout.addView(emailInput)
-        layout.addView(pwdLabel)
-        layout.addView(passwordInput)
-        layout.addView(loginButton)
-        layout.addView(registerButton)
-        layout.addView(statusText)
-        layout.addView(startButton)
-        layout.addView(stopButton)
-        layout.addView(signOutButton)
-        setContentView(layout)
+        setContentView(scroll)
 
         PetStore.email(this)?.let { emailInput.setText(it) }
         refreshStatus()
     }
+
+    // ---------- 小样式工具 ----------
+
+    private fun rounded(fill: Int, radiusDp: Int, stroke: Int? = null, strokeDp: Int = 1): GradientDrawable {
+        val d = GradientDrawable()
+        d.shape = GradientDrawable.RECTANGLE
+        d.cornerRadius = radiusDp * density
+        d.setColor(fill)
+        if (stroke != null) d.setStroke((strokeDp * density).toInt().coerceAtLeast(1), stroke)
+        return d
+    }
+
+    private fun wrap(top: Int = 0): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = px(top) }
+
+    private fun card(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(px(16), px(16), px(16), px(18))
+        background = rounded(cardBg, 18)
+        layoutParams = wrap(top = 16)
+    }
+
+    private fun tag(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 15f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(ink)
+    }
+
+    private fun input(hintText: String, type: Int): EditText = EditText(this).apply {
+        hint = hintText
+        inputType = type
+        setSingleLine()
+        textSize = 15f
+        setTextColor(ink)
+        setHintTextColor(hintColor)
+        setPadding(px(14), 0, px(14), 0)
+        background = rounded(cardBg, 12, lineColor)
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            px(48)
+        ).apply { topMargin = px(10) }
+    }
+
+    private fun button(
+        text: String,
+        fill: Int,
+        fg: Int,
+        stroke: Int? = null,
+        onClick: () -> Unit
+    ): TextView = TextView(this).apply {
+        this.text = text
+        gravity = Gravity.CENTER
+        textSize = 15f
+        setTextColor(fg)
+        typeface = Typeface.DEFAULT_BOLD
+        background = rounded(fill, 13, stroke)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            px(48)
+        ).apply { topMargin = px(12) }
+    }
+
+    // ---------- 逻辑 ----------
 
     private fun refreshStatus() {
         val email = PetStore.email(this)
