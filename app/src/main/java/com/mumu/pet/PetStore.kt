@@ -9,6 +9,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
+import java.time.OffsetDateTime
 
 /** MuMu 的云端存档快照。 */
 data class PetState(
@@ -16,7 +17,9 @@ data class PetState(
     val mood: String = "idle",
     val moodValue: Int = 70,
     val energy: Int = 80,
-    val intimacy: Int = 10
+    val intimacy: Int = 10,
+    /** 上次见到主人的时刻；用来算这段时间它过得怎么样。 */
+    val lastSeenAt: Instant? = null
 )
 
 class SupabaseException(message: String) : Exception(message)
@@ -99,7 +102,7 @@ object PetStore {
     /** 读云端状态；如果是第一次，自动建一行。 */
     fun loadState(ctx: Context): PetState {
         val uid = requireUser(ctx)
-        val path = "/rest/v1/pet_state?select=name,mood,mood_value,energy,intimacy" +
+        val path = "/rest/v1/pet_state?select=name,mood,mood_value,energy,intimacy,last_seen_at" +
             "&user_id=eq.$uid&limit=1"
         val arr = JSONArray(call("GET", path, null, requireToken(ctx)))
         if (arr.length() > 0) return parseState(arr.getJSONObject(0))
@@ -122,7 +125,7 @@ object PetStore {
             .put("mood_value", state.moodValue)
             .put("energy", state.energy)
             .put("intimacy", state.intimacy)
-            .put("last_seen_at", Instant.now().toString())
+            .put("last_seen_at", (state.lastSeenAt ?: Instant.now()).toString())
             .toString()
         call(
             "PATCH",
@@ -181,8 +184,15 @@ object PetStore {
         mood = o.optString("mood", "idle"),
         moodValue = o.optInt("mood_value", 70),
         energy = o.optInt("energy", 80),
-        intimacy = o.optInt("intimacy", 10)
+        intimacy = o.optInt("intimacy", 10),
+        lastSeenAt = parseInstant(o.optString("last_seen_at"))
     )
+
+    /** PostgREST 回来的时间戳形如 2026-05-20T12:00:00.123456+00:00，Instant.parse 不吃。 */
+    private fun parseInstant(raw: String?): Instant? {
+        if (raw.isNullOrEmpty()) return null
+        return runCatching { OffsetDateTime.parse(raw).toInstant() }.getOrNull()
+    }
 
     private fun firstObject(raw: String): JSONObject {
         val t = raw.trim()
