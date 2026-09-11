@@ -18,6 +18,11 @@ fun cfg(key: String, fallback: String): String =
 val supabaseUrl = cfg("SUPABASE_URL", "https://qhbdbkttnmevgsovrset.supabase.co")
 val supabaseKey = cfg("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_LTnytTrSuIK8_WLOLkyv6g_f-WO4LFn")
 
+// 固定调试图章（CI 里由 ci/debug.keystore.b64 解码而来）。
+// 提前显式指定，不让 AGP 在干净的 runner 上随生成，否则每次升级都得先卸载。
+val ciKeystore = rootProject.file("ci/debug.keystore")
+val hasFixedSigning = ciKeystore.exists()
+
 android {
     namespace = "com.mumu.pet"
     compileSdk = 34
@@ -33,13 +38,28 @@ android {
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabaseKey\"")
     }
 
+    signingConfigs {
+        if (hasFixedSigning) {
+            create("fixed") {
+                storeFile = ciKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasFixedSigning) signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasFixedSigning) signingConfig = signingConfigs.getByName("fixed")
         }
     }
 
