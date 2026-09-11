@@ -1,5 +1,6 @@
 package com.mumu.pet
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -8,8 +9,14 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
+import android.util.DisplayMetrics
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -19,21 +26,45 @@ import org.json.JSONObject
 import java.time.Instant
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.random.Random
 
 /**
- * \u628a\u684c\u5ba0\u753b\u5230\u5c4f\u5e55\u4e0a\u7684\u524d\u53f0\u670d\u52a1\u3002
+ * 把桌宠画到屏幕上的前台服务。
  *
- * \u804c\u8d23\uff1a\u5efa\u4e00\u4e2a\u900f\u660e\u7684 WebView \u60ac\u6d6e\u7a97\u52a0\u8f7d assets/web/index.html\uff0c
- * \u5e76\u628a\u5b83\u548c Supabase \u91cc\u7684 pet_state / pet_events \u63a5\u8d77\u6765\u3002
- * \u60c5\u7eea\u7684\u8ba1\u7b97\u5168\u90e8\u59d4\u6258\u7ed9 MoodEngine\uff0c\u8fd9\u91cc\u53ea\u7ba1\u8c03\u5b83\u548c\u5b58\u76d8\u3002
+ * 职责：建一个透明的 WebView 悬浮窗加载 assets/web/index.html，
+ * 并把它和 Supabase 里的 pet_state / pet_events 接起来。
+ * 情绪的计算全部委托给 MoodEngine，这里只管调它、存盘，
+ * 另外负责它的“身体行为”：自己溜达、可以被拖动、偶尔说话。
  */
 class PetOverlayService : Service() {
 
     private var windowManager: WindowManager? = null
     private var petView: WebView? = null
+    private var params: WindowManager.LayoutParams? = null
 
     private val io = Executors.newSingleThreadScheduledExecutor()
+    private val ui = Handler(Looper.getMainLooper())
     private var state = PetState()
+
+    // 屏幕 / 窗口尺寸
+    private var screenW = 0
+    private var screenH = 0
+    private var winW = 0
+    private var winH = 0
+
+    // 自主溜达
+    private var targetX = 0f
+    private var restUntil = 0L
+    private var walking = false
+
+    // 拖拽
+    private var downRawX = 0f
+    private var downRawY = 0f
+    private var grabX = 0
+    private var grabY = 0
+    private var dragging = false
+    private var touchSlop = 0f
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -43,6 +74,8 @@ class PetOverlayService : Service() {
         addPetToWindow()
         syncFromCloud()
         startSettleLoop()
+        ui.postDelayed(wanderRunnable, FRAME_MS)
+        ui.postDelayed(talkRunnable, FIRST_TALK_MS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,9 +112,21 @@ class PetOverlayService : Service() {
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun addPetToWindow() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
+
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(metrics)
+        screenW = metrics.widthPixels
+        screenH = metrics.heightPixels
+
+        val density = resources.displayMetrics.density
+        winW = (PET_WINDOW_W_DP * density).toInt()
+        winH = (PET_WINDOW_H_DP * density).toInt()
+        touchSlop = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
 
         val webView = WebView(this).apply {
             setBackgroundColor(0x00000000)
@@ -91,6 +136,7 @@ class PetOverlayService : Service() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     pushStateToWeb()
+                    say(greetingLine())
                 }
             }
             loadUrl("file:///android_asset/web/index.html")
@@ -103,34 +149,160 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // \u7ed9\u6b7b\u5c3a\u5bf8\u3002WebView \u5728 WRAP_CONTENT \u4e0b\u91cf\u4e0d\u51fa\u5185\u5bb9\u9ad8\u5ea6\uff0c
-        // \u60ac\u6d6e\u7a97\u4f1a\u88ab\u5b9a\u6210 0 \u9ad8\uff0c\u5c0f\u72d0\u72f8\u5c31\u4e00\u76f4\u4e0d\u53ef\u89c1\u3002
-        val side = (PET_WINDOW_DP * resources.displayMetrics.density).toInt()
-
-        val params = WindowManager.LayoutParams(
-            side,
-            side,
+        // 给死尺寸。WebView 在 WRAP_CONTENT 下量不出内容高度，
+        // 悬浮窗会被定成 0 高，小狐狸就一直不可见。
+        val p = WindowManager.LayoutParams(
+            winW,
+            winH,
             windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = 32
-            y = 320
+            gravity = Gravity.TOP or Gravity.START
+            x = ((screenW - winW) / 2).coerceAtLeast(0)
+            y = (screenH - winH - (BOTTOM_MARGIN_DP * density).toInt()).coerceAtLeast(0)
         }
+        params = p
 
-        wm.addView(webView, params)
+        webView.setOnTouchListener { _, ev -> onPetTouch(ev) }
+
+        wm.addView(webView, p)
         petView = webView
+        targetX = p.x.toFloat()
     }
 
-    // ---------- \u548c\u7f51\u9875\u62fc\u63a5 ----------
+    // ---------- 触摸：轻点是互动，拖动是搬家 ----------
+
+    private fun onPetTouch(ev: MotionEvent): Boolean {
+        val p = params ?: return false
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downRawX = ev.rawX
+                downRawY = ev.rawY
+                grabX = p.x
+                grabY = p.y
+                dragging = false
+                restUntil = Long.MAX_VALUE // 手按住时先别自己跑
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = ev.rawX - downRawX
+                val dy = ev.rawY - downRawY
+                if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                    dragging = true
+                    setWalking(false)
+                }
+                if (dragging) {
+                    p.x = (grabX + dx).toInt().coerceIn(0, (screenW - winW).coerceAtLeast(0))
+                    p.y = (grabY + dy).toInt().coerceIn(0, (screenH - winH).coerceAtLeast(0))
+                    runCatching { windowManager?.updateViewLayout(petView, p) }
+                }
+                return true
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!dragging) {
+                    hop()
+                    handleTap()
+                } else {
+                    targetX = p.x.toFloat()
+                }
+                restUntil = SystemClock.uptimeMillis() + REST_AFTER_TOUCH_MS
+                return true
+            }
+        }
+        return false
+    }
+
+    // ---------- 自己溜达 ----------
+
+    private val wanderRunnable = object : Runnable {
+        override fun run() {
+            runCatching { wanderStep() }
+            ui.postDelayed(this, FRAME_MS)
+        }
+    }
+
+    private fun wanderStep() {
+        val p = params ?: return
+        val now = SystemClock.uptimeMillis()
+        val maxX = (screenW - winW).coerceAtLeast(0)
+
+        if (now < restUntil) {
+            setWalking(false)
+            return
+        }
+
+        val dx = targetX - p.x
+        if (abs(dx) < 2f) {
+            // 走到了，原地歇一会儿，再挑个新方向
+            restUntil = now + REST_MIN_MS + Random.nextLong(REST_RAND_MS)
+            targetX = Random.nextInt(0, maxX + 1).toFloat()
+            setWalking(false)
+            return
+        }
+
+        setWalking(true)
+        val step = resources.displayMetrics.density * 1.0f
+        p.x = (p.x + dx.coerceIn(-step, step)).toInt().coerceIn(0, maxX)
+        runCatching { windowManager?.updateViewLayout(petView, p) }
+    }
+
+    private fun setWalking(w: Boolean) {
+        if (walking == w) return
+        walking = w
+        evalJs("window.MuMu && window.MuMu.setWalking($w);")
+    }
+
+    // ---------- 偶尔说句话 ----------
+
+    private val talkRunnable = object : Runnable {
+        override fun run() {
+            if (SystemClock.uptimeMillis() >= restUntil) say(randomLine())
+            ui.postDelayed(this, TALK_MIN_MS + Random.nextLong(TALK_RAND_MS))
+        }
+    }
+
+    private fun greetingLine(): String = when (state.mood) {
+        "happy" -> "我回来啦～"
+        "sad" -> "…你终于叫我了"
+        "tired" -> "呼…有点累"
+        "sleepy" -> "唔…好困"
+        else -> "MuMu 来啦"
+    }
+
+    private fun randomLine(): String {
+        val lines = when (state.mood) {
+            "happy" -> HAPPY_LINES
+            "sad" -> SAD_LINES
+            "tired" -> TIRED_LINES
+            "sleepy" -> SLEEPY_LINES
+            else -> IDLE_LINES
+        }
+        return lines[Random.nextInt(lines.size)]
+    }
+
+    // ---------- 和网页拼接 ----------
 
     private inner class Bridge {
         @JavascriptInterface
         fun onPetTap() {
             handleTap()
         }
+    }
+
+    private fun evalJs(js: String) {
+        val view = petView ?: return
+        view.post { runCatching { view.evaluateJavascript(js, null) } }
+    }
+
+    private fun hop() = evalJs("window.MuMu && window.MuMu.hop();")
+
+    private fun say(text: String) {
+        evalJs("window.MuMu && window.MuMu.say(${JSONObject.quote(text)});")
     }
 
     private fun pushStateToWeb() {
@@ -144,14 +316,16 @@ class PetOverlayService : Service() {
             .put("synced", PetStore.isSignedIn(this))
             .toString()
         view.post {
-            view.evaluateJavascript(
-                "window.MuMu && window.MuMu.applyState($json);",
-                null
-            )
+            runCatching {
+                view.evaluateJavascript(
+                    "window.MuMu && window.MuMu.applyState($json);",
+                    null
+                )
+            }
         }
     }
 
-    /** \u62c9\u4e91\u7aef\u72b6\u6001\uff0c\u5148\u628a\u79bb\u5f00\u8fd9\u6bb5\u65f6\u95f4\u7684\u8d26\u7ed3\u7b97\u6389\uff0c\u518d\u5b58\u56de\u53bb\u3002 */
+    /** 拉云端状态，先把离开这段时间的账结算掉，再存回去。 */
     private fun syncFromCloud() {
         if (!PetStore.isSignedIn(this)) return
         io.execute {
@@ -163,14 +337,14 @@ class PetOverlayService : Service() {
                     runCatching { PetStore.saveState(this, settled) }
                 }
                 .onFailure {
-                    // \u79bb\u7ebf\u5c31\u7b97\u4e86\uff0cMuMu \u5148\u7528\u672c\u5730\u9ed8\u8ba4\u503c\u6d3b\u7740
+                    // 离线就算了，MuMu 先用本地默认值活着
                 }
         }
     }
 
     /**
-     * \u5468\u671f\u7ed3\u7b97\u3002\u670d\u52a1\u6d3b\u7740\u7684\u65f6\u5019\u6bcf\u9694\u4e00\u6bb5\u5c31\u628a\u7cbe\u529b/\u5fc3\u60c5\u6309\u65f6\u95f4\u63a8\u4e00\u63a8\uff0c
-     * \u5c31\u7b97\u4e3b\u4eba\u4e00\u76f4\u4e0d\u78b0\u5b83\uff0c\u5b83\u4e5f\u4f1a\u56f0\u3001\u4e5f\u4f1a\u7d2f\u3002
+     * 周期结算。服务活着的时候每隔一段就把精力/心情按时间推一推，
+     * 就算主人一直不碰它，它也会困、也会累。
      */
     private fun startSettleLoop() {
         io.scheduleAtFixedRate(
@@ -188,7 +362,7 @@ class PetOverlayService : Service() {
         runCatching { PetStore.saveState(this, state) }
     }
 
-    /** \u6478\u4e00\u4e0b\uff1a\u4ea4\u7ed9 MoodEngine \u7b97\u65b0\u7684\u5fc3\u60c5/\u4eb2\u5bc6/\u7cbe\u529b\uff0c\u7136\u540e\u4e0a\u62a5\u3002 */
+    /** 摸一下：交给 MoodEngine 算新的心情/亲密/精力，然后上报。 */
     private fun handleTap() {
         state = MoodEngine.onTap(state, Instant.now())
         pushStateToWeb()
@@ -210,6 +384,8 @@ class PetOverlayService : Service() {
     }
 
     override fun onDestroy() {
+        ui.removeCallbacks(wanderRunnable)
+        ui.removeCallbacks(talkRunnable)
         petView?.let { view ->
             runCatching { windowManager?.removeView(view) }
         }
@@ -219,10 +395,35 @@ class PetOverlayService : Service() {
     }
 
     private companion object {
-        /** \u5468\u671f\u7ed3\u7b97\u7684\u95f4\u9694\uff08\u5206\u949f\uff09\u3002 */
+        /** 周期结算的间隔（分钟）。 */
         const val SETTLE_INTERVAL_MIN = 5L
 
-        /** \u60ac\u6d6e\u7a97\u8fb9\u957f\uff08dp\uff09\u3002 */
-        const val PET_WINDOW_DP = 132
+        /** 悬浮窗宽/高（dp）。 */
+        const val PET_WINDOW_W_DP = 150
+        const val PET_WINDOW_H_DP = 150
+
+        /** 悬浮窗离屏幕底部的距离（dp）。 */
+        const val BOTTOM_MARGIN_DP = 24
+
+        /** 溜达动画的帧间隔（毫秒）。 */
+        const val FRAME_MS = 33L
+
+        /** 走一段之后的休息时间。 */
+        const val REST_MIN_MS = 1500L
+        const val REST_RAND_MS = 5000L
+
+        /** 被摸/被拖之后的安静时间。 */
+        const val REST_AFTER_TOUCH_MS = 2500L
+
+        /** 说话的间隔。 */
+        const val FIRST_TALK_MS = 9000L
+        const val TALK_MIN_MS = 22000L
+        const val TALK_RAND_MS = 26000L
+
+        val HAPPY_LINES = arrayOf("今天心情超好！", "陪着你最开心啦", "嘿嘿，摸摸头～")
+        val SAD_LINES = arrayOf("有点想你了…", "别不理我好不好", "呜…想要抱抱")
+        val TIRED_LINES = arrayOf("有点累了…", "歇会儿好不好", "眼皮好重呀")
+        val SLEEPY_LINES = arrayOf("呼…好困…", "我先眯一会儿", "早点睡哦")
+        val IDLE_LINES = arrayOf("在忙什么呀？", "我一直都在哦", "记得喝水", "陪我玩会儿嘛")
     }
 }
