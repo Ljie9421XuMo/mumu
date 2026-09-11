@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MuMu</string>
+    <string name="mumu_notif_title">MuMu 在陪着你</string>
+    <string name="mumu_notif_text">点一下回到 MuMu</string>
+</resources>
