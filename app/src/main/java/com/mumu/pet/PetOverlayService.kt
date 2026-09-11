@@ -21,11 +21,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * 把桌宠画到屏幕上的前台服务。
+ * \u628a\u684c\u5ba0\u753b\u5230\u5c4f\u5e55\u4e0a\u7684\u524d\u53f0\u670d\u52a1\u3002
  *
- * 职责：建一个透明的 WebView 悬浮窗加载 assets/web/index.html，
- * 并把它和 Supabase 里的 pet_state / pet_events 接起来。
- * 情绪的计算全部委托给 MoodEngine，这里只管调它和存盘。
+ * \u804c\u8d23\uff1a\u5efa\u4e00\u4e2a\u900f\u660e\u7684 WebView \u60ac\u6d6e\u7a97\u52a0\u8f7d assets/web/index.html\uff0c
+ * \u5e76\u628a\u5b83\u548c Supabase \u91cc\u7684 pet_state / pet_events \u63a5\u8d77\u6765\u3002
+ * \u60c5\u7eea\u7684\u8ba1\u7b97\u5168\u90e8\u59d4\u6258\u7ed9 MoodEngine\uff0c\u8fd9\u91cc\u53ea\u7ba1\u8c03\u5b83\u548c\u5b58\u76d8\u3002
  */
 class PetOverlayService : Service() {
 
@@ -103,9 +103,13 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // \u7ed9\u6b7b\u5c3a\u5bf8\u3002WebView \u5728 WRAP_CONTENT \u4e0b\u91cf\u4e0d\u51fa\u5185\u5bb9\u9ad8\u5ea6\uff0c
+        // \u60ac\u6d6e\u7a97\u4f1a\u88ab\u5b9a\u6210 0 \u9ad8\uff0c\u5c0f\u72d0\u72f8\u5c31\u4e00\u76f4\u4e0d\u53ef\u89c1\u3002
+        val side = (PET_WINDOW_DP * resources.displayMetrics.density).toInt()
+
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            side,
+            side,
             windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -120,7 +124,7 @@ class PetOverlayService : Service() {
         petView = webView
     }
 
-    // ---------- 和网页拼接 ----------
+    // ---------- \u548c\u7f51\u9875\u62fc\u63a5 ----------
 
     private inner class Bridge {
         @JavascriptInterface
@@ -147,7 +151,7 @@ class PetOverlayService : Service() {
         }
     }
 
-    /** 拉云端状态，先把离开这段时间的账结算掉，再存回去。 */
+    /** \u62c9\u4e91\u7aef\u72b6\u6001\uff0c\u5148\u628a\u79bb\u5f00\u8fd9\u6bb5\u65f6\u95f4\u7684\u8d26\u7ed3\u7b97\u6389\uff0c\u518d\u5b58\u56de\u53bb\u3002 */
     private fun syncFromCloud() {
         if (!PetStore.isSignedIn(this)) return
         io.execute {
@@ -159,14 +163,14 @@ class PetOverlayService : Service() {
                     runCatching { PetStore.saveState(this, settled) }
                 }
                 .onFailure {
-                    // 离线就算了，MuMu 先用本地默认值活着
+                    // \u79bb\u7ebf\u5c31\u7b97\u4e86\uff0cMuMu \u5148\u7528\u672c\u5730\u9ed8\u8ba4\u503c\u6d3b\u7740
                 }
         }
     }
 
     /**
-     * 周期结算。服务活着的时候每隔一段就把精力/心情按时间推一推，
-     * 就算主人一直不碰它，它也会困、也会累。
+     * \u5468\u671f\u7ed3\u7b97\u3002\u670d\u52a1\u6d3b\u7740\u7684\u65f6\u5019\u6bcf\u9694\u4e00\u6bb5\u5c31\u628a\u7cbe\u529b/\u5fc3\u60c5\u6309\u65f6\u95f4\u63a8\u4e00\u63a8\uff0c
+     * \u5c31\u7b97\u4e3b\u4eba\u4e00\u76f4\u4e0d\u78b0\u5b83\uff0c\u5b83\u4e5f\u4f1a\u56f0\u3001\u4e5f\u4f1a\u7d2f\u3002
      */
     private fun startSettleLoop() {
         io.scheduleAtFixedRate(
@@ -184,7 +188,7 @@ class PetOverlayService : Service() {
         runCatching { PetStore.saveState(this, state) }
     }
 
-    /** 摸一下：交给 MoodEngine 算新的心情/亲密/精力，然后上报。 */
+    /** \u6478\u4e00\u4e0b\uff1a\u4ea4\u7ed9 MoodEngine \u7b97\u65b0\u7684\u5fc3\u60c5/\u4eb2\u5bc6/\u7cbe\u529b\uff0c\u7136\u540e\u4e0a\u62a5\u3002 */
     private fun handleTap() {
         state = MoodEngine.onTap(state, Instant.now())
         pushStateToWeb()
@@ -215,7 +219,10 @@ class PetOverlayService : Service() {
     }
 
     private companion object {
-        /** 周期结算的间隔（分钟）。 */
+        /** \u5468\u671f\u7ed3\u7b97\u7684\u95f4\u9694\uff08\u5206\u949f\uff09\u3002 */
         const val SETTLE_INTERVAL_MIN = 5L
+
+        /** \u60ac\u6d6e\u7a97\u8fb9\u957f\uff08dp\uff09\u3002 */
+        const val PET_WINDOW_DP = 132
     }
 }
