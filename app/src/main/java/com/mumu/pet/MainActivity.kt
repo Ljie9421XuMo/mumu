@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         passwordInput = EditText(this).apply {
+            hint = "至少 6 位"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSingleLine()
             textSize = 15f
