@@ -5,35 +5,63 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var emailInput: EditText
+    private lateinit var passwordInput: EditText
+    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val dp = resources.displayMetrics.density
-        val pad = (24 * dp).toInt()
+        fun px(v: Int) = (v * dp).toInt()
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(pad, pad, pad, pad)
+            setPadding(px(24), px(24), px(24), px(24))
         }
 
         val title = TextView(this).apply {
             text = "MuMu"
-            textSize = 34f
+            textSize = 30f
+            gravity = Gravity.CENTER_HORIZONTAL
         }
 
-        val hint = TextView(this).apply {
-            text = "把 MuMu 叫到桌面上。\n需要先允许「显示在其他应用上层」。"
-            textSize = 14f
-            setPadding(0, (12 * dp).toInt(), 0, (24 * dp).toInt())
+        emailInput = EditText(this).apply {
+            hint = "邮箱"
+            inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSingleLine()
+        }
+
+        passwordInput = EditText(this).apply {
+            hint = "密码（至少 6 位）"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine()
+        }
+
+        val loginButton = Button(this).apply {
+            text = "登录"
+            setOnClickListener { submitAuth(register = false) }
+        }
+
+        val registerButton = Button(this).apply {
+            text = "注册"
+            setOnClickListener { submitAuth(register = true) }
+        }
+
+        statusText = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, px(8), 0, px(12))
         }
 
         val startButton = Button(this).apply {
@@ -48,11 +76,68 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val signOutButton = Button(this).apply {
+            text = "退出登录"
+            setOnClickListener {
+                PetStore.signOut(this@MainActivity)
+                refreshStatus()
+                toast("已退出，MuMu 只在本地活着")
+            }
+        }
+
         layout.addView(title)
-        layout.addView(hint)
+        layout.addView(emailInput)
+        layout.addView(passwordInput)
+        layout.addView(loginButton)
+        layout.addView(registerButton)
+        layout.addView(statusText)
         layout.addView(startButton)
         layout.addView(stopButton)
+        layout.addView(signOutButton)
         setContentView(layout)
+
+        PetStore.email(this)?.let { emailInput.setText(it) }
+        refreshStatus()
+    }
+
+    private fun refreshStatus() {
+        val email = PetStore.email(this)
+        statusText.text = if (email != null) {
+            "已登录：$email\nMuMu 的状态会同步到云端。"
+        } else {
+            "未登录。MuMu 仍然会出来，但状态只存在本机。"
+        }
+    }
+
+    private fun submitAuth(register: Boolean) {
+        val email = emailInput.text.toString().trim()
+        val password = passwordInput.text.toString()
+
+        if (email.isEmpty() || password.isEmpty()) {
+            toast("邮箱和密码都要填")
+            return
+        }
+
+        statusText.text = if (register) "注册中…" else "登录中…"
+
+        Thread {
+            try {
+                if (register) {
+                    PetStore.signUp(this, email, password)
+                } else {
+                    PetStore.signIn(this, email, password)
+                }
+                runOnUiThread {
+                    toast(if (register) "注册好了" else "登录好了")
+                    refreshStatus()
+                }
+            } catch (e: Exception) {
+                val msg = e.message ?: e.toString()
+                runOnUiThread {
+                    statusText.text = "失败：$msg"
+                }
+            }
+        }.start()
     }
 
     private fun ensureOverlayPermissionThenStart() {
@@ -66,5 +151,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         startForegroundService(Intent(this, PetOverlayService::class.java))
+    }
+
+    private fun toast(text: String) {
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
     }
 }
