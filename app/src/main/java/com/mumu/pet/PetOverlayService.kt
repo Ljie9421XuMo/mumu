@@ -16,20 +16,23 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
+import java.time.Instant
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 把桌宠画到屏幕上的前台服务。
  *
  * 职责：建一个透明的 WebView 悬浮窗加载 assets/web/index.html，
  * 并把它和 Supabase 里的 pet_state / pet_events 接起来。
+ * 情绪的计算全部委托给 MoodEngine，这里只管调它和存盘。
  */
 class PetOverlayService : Service() {
 
     private var windowManager: WindowManager? = null
     private var petView: WebView? = null
 
-    private val io = Executors.newSingleThreadExecutor()
+    private val io = Executors.newSingleThreadScheduledExecutor()
     private var state = PetState()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -39,6 +42,7 @@ class PetOverlayService : Service() {
         startAsForeground()
         addPetToWindow()
         syncFromCloud()
+        startSettleLoop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -143,13 +147,16 @@ class PetOverlayService : Service() {
         }
     }
 
+    /** 拉云端状态，先把离开这段时间的账结算掉，再存回去。 */
     private fun syncFromCloud() {
         if (!PetStore.isSignedIn(this)) return
         io.execute {
             runCatching { PetStore.loadState(this) }
                 .onSuccess { remote ->
-                    state = remote
+                    val settled = MoodEngine.settle(remote, Instant.now())
+                    state = settled
                     pushStateToWeb()
+                    runCatching { PetStore.saveState(this, settled) }
                 }
                 .onFailure {
                     // 离线就算了，MuMu 先用本地默认值活着
@@ -157,32 +164,43 @@ class PetOverlayService : Service() {
         }
     }
 
-    /** 摸一下：心情涨、亲密涨、精力掉一点，然后上报事件。 */
-    private fun handleTap() {
-        val newMoodValue = (state.moodValue + 3).coerceAtMost(100)
-        state = state.copy(
-            moodValue = newMoodValue,
-            intimacy = (state.intimacy + 1).coerceAtMost(100),
-            energy = (state.energy - 1).coerceAtLeast(0),
-            mood = when {
-                newMoodValue >= 70 -> "happy"
-                newMoodValue >= 30 -> "idle"
-                else -> "sad"
-            }
+    /**
+     * 周期结算。服务活着的时候每隔一段就把精力/心情按时间推一推，
+     * 就算主人一直不碰它，它也会困、也会累。
+     */
+    private fun startSettleLoop() {
+        io.scheduleAtFixedRate(
+            { runCatching { settleOnce() } },
+            SETTLE_INTERVAL_MIN,
+            SETTLE_INTERVAL_MIN,
+            TimeUnit.MINUTES
         )
+    }
+
+    private fun settleOnce() {
+        if (!PetStore.isSignedIn(this)) return
+        state = MoodEngine.settle(state, Instant.now())
+        pushStateToWeb()
+        runCatching { PetStore.saveState(this, state) }
+    }
+
+    /** 摸一下：交给 MoodEngine 算新的心情/亲密/精力，然后上报。 */
+    private fun handleTap() {
+        state = MoodEngine.onTap(state, Instant.now())
         pushStateToWeb()
 
         if (!PetStore.isSignedIn(this)) return
+        val snapshot = state
         io.execute {
             runCatching {
                 PetStore.appendEvent(
                     this,
                     "tap",
                     JSONObject()
-                        .put("mood_value", state.moodValue)
-                        .put("intimacy", state.intimacy)
+                        .put("mood_value", snapshot.moodValue)
+                        .put("intimacy", snapshot.intimacy)
                 )
-                PetStore.saveState(this, state)
+                PetStore.saveState(this, snapshot)
             }
         }
     }
@@ -194,5 +212,10 @@ class PetOverlayService : Service() {
         petView = null
         io.shutdown()
         super.onDestroy()
+    }
+
+    private companion object {
+        /** 周期结算的间隔（分钟）。 */
+        const val SETTLE_INTERVAL_MIN = 5L
     }
 }
