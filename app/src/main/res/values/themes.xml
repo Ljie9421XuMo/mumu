@@ -7,7 +7,7 @@
       改成 Light 系，固定浅色界面 + 深色文字，不再跟系统日夜切换。
     -->
     <style name="Theme.MuMu" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:windowBackground">#FFFFFFFF</item>
+        <item name="android:windowBackground">#FFF5F2FB</item>
         <item name="android:textColorPrimary">#FF1A1A1A</item>
         <item name="android:textColorSecondary">#FF666666</item>
         <item name="android:textColor">#FF1A1A1A</item>
