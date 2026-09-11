@@ -18,8 +18,8 @@
     }
 
     #stage {
-      width: 132px;
-      height: 132px;
+      width: 100%;
+      height: 100%;
       display: flex;
       align-items: flex-end;
       justify-content: center;
@@ -45,7 +45,7 @@
       100% { transform: translateY(0) scale(1, 1); }
     }
 
-    /* 心情/精力影响外观：开心更亮，难过发灰，累了一点，困了最沉 */
+    /* \u5fc3\u60c5/\u7cbe\u529b\u5f71\u54cd\u5916\u89c2\uff1a\u5f00\u5fc3\u66f4\u4eae\uff0c\u96be\u8fc7\u53d1\u7070\uff0c\u7d2f\u4e86\u4e00\u70b9\uff0c\u56f0\u4e86\u6700\u6c89 */
     body[data-mood="happy"]  #pet { filter: brightness(1.08) saturate(1.1); }
     body[data-mood="sad"]    #pet { filter: saturate(0.62) brightness(0.92); }
     body[data-mood="tired"]  #pet { filter: saturate(0.82) brightness(0.94); }
@@ -65,7 +65,7 @@
 
   <script>
     (function () {
-      // 小狐狸像素图。A=狐狸色 E=眼睛 W=白色吻部 .=透明
+      // \u5c0f\u72d0\u72f8\u50cf\u7d20\u56fe\u3002A=\u72d0\u72f8\u8272 E=\u773c\u775b W=\u767d\u8272\u543b\u90e8 .=\u900f\u660e
       var ART = [
         '..A......A..',
         '.AAA....AAA.',
@@ -122,7 +122,7 @@
 
       draw(false);
 
-      // 眨眼：心情越好眨得越勤，累了/困了就慢下来
+      // \u7728\u773c\uff1a\u5fc3\u60c5\u8d8a\u597d\u7728\u5f97\u8d8a\u52e4\uff0c\u7d2f\u4e86/\u56f0\u4e86\u5c31\u6162\u4e0b\u6765
       function scheduleBlink() {
         if (blinkTimer) clearInterval(blinkTimer);
         blinkTimer = setInterval(function () {
@@ -153,7 +153,7 @@
         pet.classList.remove('hop');
       });
 
-      // 每种心情的眨眼间隔和呼吸快慢
+      // \u6bcf\u79cd\u5fc3\u60c5\u7684\u7728\u773c\u95f4\u9694\u548c\u547c\u5438\u5feb\u6162
       function blinkFor(m) {
         if (m === 'happy') return 2600;
         if (m === 'tired') return 5200;
@@ -181,7 +181,7 @@
         draw(false);
       }
 
-      // 原生侧（PetOverlayService）通过这里把云端状态推下来
+      // \u539f\u751f\u4fa7\uff08PetOverlayService\uff09\u901a\u8fc7\u8fd9\u91cc\u628a\u4e91\u7aef\u72b6\u6001\u63a8\u4e0b\u6765
       window.MuMu = {
         draw: draw,
         hop: hop,
