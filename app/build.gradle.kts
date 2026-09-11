@@ -5,8 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// \u672c\u5730\u5bc6\u94a5\u4f18\u5148\u4ece local.properties / \u73af\u5883\u53d8\u91cf\u8bfb\uff08CI \u91cc\u6ca1\u6709 local.properties\uff09\u3002
-// \u8fd9\u4e24\u4e2a\u503c\u90fd\u662f\u53ef\u516c\u5f00\u7684\u5ba2\u6237\u7aef\u914d\u7f6e\uff0cpublishable key \u672c\u6765\u5c31\u662f\u8981\u653e\u8fdb\u5ba2\u6237\u7aef\u7684\u3002
+// 本地密钥优先从 local.properties / 环境变量读（CI 里没有 local.properties）。
+// 这两个值都是可公开的客户端配置，publishable key 本来就是要放进客户端的。
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -26,8 +26,8 @@ android {
         applicationId = "com.mumu.pet"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.3.1"
+        versionCode = 3
+        versionName = "0.3.2"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabaseKey\"")
