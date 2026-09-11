@@ -11,20 +11,26 @@ import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
+import java.util.concurrent.Executors
 
 /**
  * 把桌宠画到屏幕上的前台服务。
  *
- * 现在它只做一件事：建一个透明的 WebView 悬浮窗，加载 assets/web/index.html。
- * 后面的情绪引擎、互动、记忆，都会从这个窗口长出来。
+ * 职责：建一个透明的 WebView 悬浮窗加载 assets/web/index.html，
+ * 并把它和 Supabase 里的 pet_state / pet_events 接起来。
  */
 class PetOverlayService : Service() {
 
     private var windowManager: WindowManager? = null
     private var petView: WebView? = null
+
+    private val io = Executors.newSingleThreadExecutor()
+    private var state = PetState()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -32,6 +38,7 @@ class PetOverlayService : Service() {
         super.onCreate()
         startAsForeground()
         addPetToWindow()
+        syncFromCloud()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -76,7 +83,12 @@ class PetOverlayService : Service() {
             setBackgroundColor(0x00000000)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            webViewClient = WebViewClient()
+            addJavascriptInterface(Bridge(), "MuMuNative")
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    pushStateToWeb()
+                }
+            }
             loadUrl("file:///android_asset/web/index.html")
         }
 
@@ -104,11 +116,83 @@ class PetOverlayService : Service() {
         petView = webView
     }
 
+    // ---------- 和网页拼接 ----------
+
+    private inner class Bridge {
+        @JavascriptInterface
+        fun onPetTap() {
+            handleTap()
+        }
+    }
+
+    private fun pushStateToWeb() {
+        val view = petView ?: return
+        val json = JSONObject()
+            .put("name", state.name)
+            .put("mood", state.mood)
+            .put("moodValue", state.moodValue)
+            .put("energy", state.energy)
+            .put("intimacy", state.intimacy)
+            .put("synced", PetStore.isSignedIn(this))
+            .toString()
+        view.post {
+            view.evaluateJavascript(
+                "window.MuMu && window.MuMu.applyState($json);",
+                null
+            )
+        }
+    }
+
+    private fun syncFromCloud() {
+        if (!PetStore.isSignedIn(this)) return
+        io.execute {
+            runCatching { PetStore.loadState(this) }
+                .onSuccess { remote ->
+                    state = remote
+                    pushStateToWeb()
+                }
+                .onFailure {
+                    // 离线就算了，MuMu 先用本地默认值活着
+                }
+        }
+    }
+
+    /** 摸一下：心情涨、亲密涨、精力掉一点，然后上报事件。 */
+    private fun handleTap() {
+        val newMoodValue = (state.moodValue + 3).coerceAtMost(100)
+        state = state.copy(
+            moodValue = newMoodValue,
+            intimacy = (state.intimacy + 1).coerceAtMost(100),
+            energy = (state.energy - 1).coerceAtLeast(0),
+            mood = when {
+                newMoodValue >= 70 -> "happy"
+                newMoodValue >= 30 -> "idle"
+                else -> "sad"
+            }
+        )
+        pushStateToWeb()
+
+        if (!PetStore.isSignedIn(this)) return
+        io.execute {
+            runCatching {
+                PetStore.appendEvent(
+                    this,
+                    "tap",
+                    JSONObject()
+                        .put("mood_value", state.moodValue)
+                        .put("intimacy", state.intimacy)
+                )
+                PetStore.saveState(this, state)
+            }
+        }
+    }
+
     override fun onDestroy() {
         petView?.let { view ->
             runCatching { windowManager?.removeView(view) }
         }
         petView = null
+        io.shutdown()
         super.onDestroy()
     }
 }
