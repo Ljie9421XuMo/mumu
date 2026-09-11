@@ -37,16 +37,29 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
         }
 
+        val emailLabel = TextView(this).apply {
+            text = "邮箱"
+            textSize = 14f
+            setPadding(0, px(6), 0, 0)
+        }
+
         emailInput = EditText(this).apply {
-            hint = "邮箱"
+            hint = "you@example.com"
             inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             setSingleLine()
+            textSize = 15f
+        }
+
+        val pwdLabel = TextView(this).apply {
+            text = "密码（至少 6 位）"
+            textSize = 14f
+            setPadding(0, px(6), 0, 0)
         }
 
         passwordInput = EditText(this).apply {
-            hint = "密码（至少 6 位）"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSingleLine()
+            textSize = 15f
         }
 
         val loginButton = Button(this).apply {
@@ -55,13 +68,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         val registerButton = Button(this).apply {
-            text = "注册"
+            text = "注册新账号"
             setOnClickListener { submitAuth(register = true) }
         }
 
         statusText = TextView(this).apply {
             textSize = 13f
             setPadding(0, px(8), 0, px(12))
+            setLineSpacing(0f, 1.3f)
         }
 
         val startButton = Button(this).apply {
@@ -73,6 +87,7 @@ class MainActivity : AppCompatActivity() {
             text = "让 MuMu 回家"
             setOnClickListener {
                 stopService(Intent(this@MainActivity, PetOverlayService::class.java))
+                toast("MuMu 回家了")
             }
         }
 
@@ -86,7 +101,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         layout.addView(title)
+        layout.addView(emailLabel)
         layout.addView(emailInput)
+        layout.addView(pwdLabel)
         layout.addView(passwordInput)
         layout.addView(loginButton)
         layout.addView(registerButton)
@@ -119,6 +136,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         statusText.text = if (register) "注册中…" else "登录中…"
+        emailInput.isEnabled = false
+        passwordInput.isEnabled = false
 
         Thread {
             try {
@@ -130,11 +149,15 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     toast(if (register) "注册好了" else "登录好了")
                     refreshStatus()
+                    emailInput.isEnabled = true
+                    passwordInput.isEnabled = true
                 }
             } catch (e: Exception) {
                 val msg = e.message ?: e.toString()
                 runOnUiThread {
                     statusText.text = "失败：$msg"
+                    emailInput.isEnabled = true
+                    passwordInput.isEnabled = true
                 }
             }
         }.start()
@@ -151,9 +174,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         startForegroundService(Intent(this, PetOverlayService::class.java))
+        toast("MuMu 出来了")
     }
 
     private fun toast(text: String) {
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+        }
     }
 }
