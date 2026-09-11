@@ -28,7 +28,7 @@
     #pet {
       transform-origin: 50% 88%;
       animation: breathe 3.2s ease-in-out infinite;
-      transition: transform 0.15s ease-out;
+      transition: transform 0.15s ease-out, filter 0.4s ease-out;
     }
 
     @keyframes breathe {
@@ -44,6 +44,10 @@
       70%  { transform: translateY(0) scale(1.08, 0.92); }
       100% { transform: translateY(0) scale(1, 1); }
     }
+
+    /* 心情影响外观：开心更亮，难过发灰 */
+    body[data-mood="happy"] #pet { filter: brightness(1.08) saturate(1.1); }
+    body[data-mood="sad"]   #pet { filter: saturate(0.62) brightness(0.92); }
 
     canvas {
       display: block;
@@ -94,6 +98,10 @@
       canvas.height = SIZE * SCALE * dpr;
       ctx.scale(dpr, dpr);
 
+      var mood = 'idle';
+      var blinkMs = 4200;
+      var blinkTimer = null;
+
       function draw(blink) {
         ctx.clearRect(0, 0, SIZE * SCALE, SIZE * SCALE);
         for (var y = 0; y < SIZE; y++) {
@@ -112,30 +120,62 @@
 
       draw(false);
 
-      // 眨眼
-      setInterval(function () {
-        draw(true);
-        setTimeout(function () { draw(false); }, 140);
-      }, 4200);
+      // 眨眼：心情越好眨得越勤
+      function scheduleBlink() {
+        if (blinkTimer) clearInterval(blinkTimer);
+        blinkTimer = setInterval(function () {
+          draw(true);
+          setTimeout(function () { draw(false); }, 140);
+        }, blinkMs);
+      }
+      scheduleBlink();
 
       var pet = document.getElementById('pet');
 
-      pet.addEventListener('click', function () {
+      function hop() {
         pet.classList.remove('hop');
         void pet.offsetWidth;
         pet.classList.add('hop');
+      }
+
+      pet.addEventListener('click', function () {
+        hop();
+        try {
+          if (window.MuMuNative && window.MuMuNative.onPetTap) {
+            window.MuMuNative.onPetTap();
+          }
+        } catch (e) {}
       });
 
       pet.addEventListener('animationend', function () {
         pet.classList.remove('hop');
       });
 
-      // 情绪引擎接口，阶段 3 从这里接进来
+      // 原生侧（PetOverlayService）通过这里把云端状态推下来
       window.MuMu = {
         draw: draw,
-        setMood: function (mood) {
+        hop: hop,
+        setMood: function (m) {
+          mood = m || 'idle';
           document.body.setAttribute('data-mood', mood);
-          if (mood === 'happy') draw(false);
+          draw(false);
+        },
+        applyState: function (s) {
+          if (!s) return;
+          mood = s.mood || 'idle';
+          document.body.setAttribute('data-mood', mood);
+          document.body.setAttribute('data-energy', s.energy);
+          document.body.setAttribute('data-intimacy', s.intimacy);
+          document.body.setAttribute('data-synced', s.synced ? '1' : '0');
+
+          var next = 4200;
+          if (mood === 'happy') next = 2600;
+          if (mood === 'sad') next = 7000;
+          if (next !== blinkMs) {
+            blinkMs = next;
+            scheduleBlink();
+          }
+          draw(false);
         }
       };
     })();
