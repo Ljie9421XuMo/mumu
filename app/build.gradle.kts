@@ -26,8 +26,8 @@ android {
         applicationId = "com.mumu.pet"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3.2"
+        versionCode = 4
+        versionName = "0.3.3"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabaseKey\"")
