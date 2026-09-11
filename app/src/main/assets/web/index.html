@@ -18,79 +18,25 @@
     }
 
     #stage {
-      width: 140px;
-      height: 140px;
+      width: 132px;
+      height: 132px;
       display: flex;
       align-items: flex-end;
       justify-content: center;
     }
 
     #pet {
-      position: relative;
-      width: 108px;
-      height: 100px;
-      margin-bottom: 10px;
-      border-radius: 50% 50% 42% 42%;
-      background: radial-gradient(circle at 34% 28%, #c9b6f2 0%, #8e6bd4 55%, #6d4bb5 100%);
-      box-shadow: 0 10px 22px rgba(78, 44, 150, 0.35),
-                  inset 0 -8px 14px rgba(60, 30, 120, 0.25);
-      transform-origin: 50% 90%;
+      transform-origin: 50% 88%;
       animation: breathe 3.2s ease-in-out infinite;
       transition: transform 0.15s ease-out;
     }
 
     @keyframes breathe {
       0%, 100% { transform: scale(1, 1); }
-      50%      { transform: scale(1.05, 0.96); }
+      50%      { transform: scale(1.04, 0.97); }
     }
 
-    .eye {
-      position: absolute;
-      top: 42px;
-      width: 11px;
-      height: 15px;
-      border-radius: 50%;
-      background: #2b1b46;
-      animation: blink 5.5s infinite;
-    }
-
-    #eye-l { left: 28px; }
-    #eye-r { right: 28px; }
-
-    @keyframes blink {
-      0%, 92%, 100% { transform: scaleY(1); }
-      95%           { transform: scaleY(0.12); }
-    }
-
-    .cheek {
-      position: absolute;
-      top: 62px;
-      width: 14px;
-      height: 7px;
-      border-radius: 50%;
-      background: rgba(180, 120, 220, 0.55);
-      filter: blur(1px);
-    }
-
-    #cheek-l { left: 16px; }
-    #cheek-r { right: 16px; }
-
-    #mouth {
-      position: absolute;
-      left: 50%;
-      top: 66px;
-      width: 12px;
-      height: 7px;
-      margin-left: -6px;
-      border-radius: 0 0 10px 10px;
-      background: #3a2461;
-      opacity: 0.85;
-    }
-
-    /* 被戳一下：向上蹦一下 */
-    #pet.hop {
-      animation: hop 0.45s ease-out;
-    }
+    #pet.hop { animation: hop 0.45s ease-out; }
 
     @keyframes hop {
       0%   { transform: translateY(0) scale(1, 1); }
@@ -98,46 +44,100 @@
       70%  { transform: translateY(0) scale(1.08, 0.92); }
       100% { transform: translateY(0) scale(1, 1); }
     }
+
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
   </style>
 </head>
 <body>
   <div id="stage">
-    <div id="pet">
-      <div class="eye" id="eye-l"></div>
-      <div class="eye" id="eye-r"></div>
-      <div class="cheek" id="cheek-l"></div>
-      <div class="cheek" id="cheek-r"></div>
-      <div id="mouth"></div>
-    </div>
+    <div id="pet"><canvas id="c"></canvas></div>
   </div>
 
   <script>
     (function () {
+      // 小狐狸像素图。A=狐狸色 E=眼睛 W=白色吻部 .=透明
+      var ART = [
+        '..A......A..',
+        '.AAA....AAA.',
+        '.AAAA..AAAA.',
+        '.AAAAAAAAAA.',
+        'AAAAAAAAAAAA',
+        'AAAEAAAAEAAA',
+        'AAAAAAAAAAAA',
+        'AAAAWWWWAAAA',
+        '.AAAAAAAAAA.',
+        '.AAAAAAAAAA.',
+        '..AAAAAAAA..',
+        '...AAAAAA...'
+      ];
+
+      var COLORS = {
+        A: '#e4632d',
+        E: '#2b1b46',
+        W: '#fff4e2'
+      };
+
+      var SIZE = 12;
+      var SCALE = 10;
+
+      var canvas = document.getElementById('c');
+      var ctx = canvas.getContext('2d');
+      var dpr = window.devicePixelRatio || 1;
+
+      canvas.style.width = (SIZE * SCALE) + 'px';
+      canvas.style.height = (SIZE * SCALE) + 'px';
+      canvas.width = SIZE * SCALE * dpr;
+      canvas.height = SIZE * SCALE * dpr;
+      ctx.scale(dpr, dpr);
+
+      function draw(blink) {
+        ctx.clearRect(0, 0, SIZE * SCALE, SIZE * SCALE);
+        for (var y = 0; y < SIZE; y++) {
+          var row = ART[y];
+          for (var x = 0; x < SIZE; x++) {
+            var ch = row.charAt(x);
+            if (ch === '.') continue;
+            var color = COLORS[ch];
+            if (!color) continue;
+            if (blink && ch === 'E') color = COLORS.A;
+            ctx.fillStyle = color;
+            ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+          }
+        }
+      }
+
+      draw(false);
+
+      // 眨眼
+      setInterval(function () {
+        draw(true);
+        setTimeout(function () { draw(false); }, 140);
+      }, 4200);
+
       var pet = document.getElementById('pet');
-      var hops = 0;
 
       pet.addEventListener('click', function () {
         pet.classList.remove('hop');
-        // 强制重排，让动画能重复触发
         void pet.offsetWidth;
         pet.classList.add('hop');
-        hops += 1;
-        console.log('[mumu] poked, hops=' + hops);
       });
 
       pet.addEventListener('animationend', function () {
         pet.classList.remove('hop');
       });
 
-      // 后面这里会接情绪引擎：window.MuMu.setMood('happy')
+      // 情绪引擎接口，阶段 3 从这里接进来
       window.MuMu = {
+        draw: draw,
         setMood: function (mood) {
           document.body.setAttribute('data-mood', mood);
-          console.log('[mumu] mood -> ' + mood);
+          if (mood === 'happy') draw(false);
         }
       };
-
-      console.log('[mumu] pet is alive');
     })();
   </script>
 </body>
